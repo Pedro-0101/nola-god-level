@@ -1,5 +1,5 @@
 import os
-from datetime import timedelta
+from datetime import datetime, date, time, timedelta
 from typing import Tuple
 
 import pandas as pd
@@ -16,7 +16,14 @@ DB_URL = os.getenv(
 )
 
 
-@st.cache_resource(ttl=3600)
+# ---------- Helpers ----------
+def day_range_for_date(d: date) -> tuple[str, str]:
+    start = datetime.combine(d, time(0, 0, 0))
+    end = datetime.combine(d, time(23, 59, 59))
+    return start.strftime("%Y-%m-%d %H:%M:%S"), end.strftime("%Y-%m-%d %H:%M:%S")
+
+
+@st.cache_resource(ttl=3600)  # tempo em segundos que o recurso fica válido no cache.
 def get_engine(url: str = DB_URL):
     """
     Cria (e cacheia) o SQLAlchemy Engine:
@@ -48,19 +55,73 @@ def run_scalar(sql: str, params: dict = None):
     return row
 
 
-st.title("Dashboard simples")
-start_date = st.date_input("Data início")
-end_date = st.date_input("Data fim")
+# ---------- UI ----------
 
-if st.button("Carregar"):
-    sql = """
-    SELECT date_trunc('day', created_at) as dia, SUM(total_amount) as faturamento
-    FROM sales
-    WHERE created_at BETWEEN :start AND :end
-    GROUP BY 1
-    ORDER BY 1
+# Sidebar filters (defaults para hoje)
+today = date.today()
+start_ts_default, end_ts_default = day_range_for_date(today)
+
+st.sidebar.header("Filtros")
+# Data pickers defaultam para hoje
+start_date = st.sidebar.date_input("Data início", value=today)
+end_date = st.sidebar.date_input("Data fim", value=today)
+
+st.set_page_config(
+    page_title="Sales Dashboard", layout="wide"
+)
+
+st.title(f"📊 Sales Dashboard: From {start_date} to {end_date}")
+
+
+# Carrega lojas
+def load_store_list():
+    q = "SELECT id, name FROM stores ORDER BY name"
+    with engine.connect() as conn:
+        df = pd.read_sql_query(q, conn)
+    if df.empty:
+        return []
+    # transforma em lista de strings "id - nome"
+    return [f"{row['id']} - {row['name']}" for _, row in df.iterrows()]
+
+
+stores = load_store_list()
+
+# ---------- Checkbox de lojas ----------
+store_choices = st.sidebar.multiselect(
+    "Selecione as lojas (múltiplas):",
+    options=stores,
+    default=None,  # por padrão, não seleciona nenhuma
+)
+store_ids = [int(s.split(" - ")[0]) for s in store_choices]
+
+# ---------- Checkbox de channels ----------
+
+
+
+@st.cache_data(ttl=500)
+def salesByDate(
+    start: datetime = start_date, end: datetime = end_date, stores_ids: list = store_ids
+):
+    params = {"start": start, "end": end, "store_ids": stores_ids}
+    q = """
+        SELECT 
+            DATE(created_at) AS date, 
+            SUM(value_paid) AS total
+        FROM sales
+        WHERE created_at BETWEEN :start AND :end
+        AND store_id = ANY(:store_ids)
+        GROUP BY DATE(created_at)
+        ORDER BY date
     """
-    df = run_query_to_df(
-        sql, {"start": f"{start_date} 00:00:00", "end": f"{end_date} 23:59:59"}
-    )
-    st.dataframe(df)
+    with engine.connect() as conn:
+        df = pd.read_sql_query(sqlalchemy.text(q), conn, params=params)
+    return df
+
+
+sales_line = salesByDate(start_date, end_date, store_ids)
+
+# Mostra o gráfico de linha (datas no eixo X, valores no Y)
+if not sales_line.empty:
+    st.line_chart(data=sales_line, x="date", y="total", use_container_width=True)
+else:
+    st.info("No sales in the selected period.")
