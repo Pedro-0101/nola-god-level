@@ -57,6 +57,9 @@ def run_scalar(sql: str, params: dict = None):
 
 # ---------- UI ----------
 
+# Links para outras paginas
+st.page_link("pages/products.py", label="Products")
+
 # Sidebar filters (defaults para hoje)
 today = date.today()
 start_ts_default, end_ts_default = day_range_for_date(today)
@@ -67,7 +70,8 @@ start_date = st.sidebar.date_input("Start date", value=today)
 end_date = st.sidebar.date_input("End date", value=today)
 
 st.set_page_config(page_title="Sales Dashboard", layout="wide")
-st.title(f"📊 Sales Dashboard: From {start_date} to {end_date}")
+st.title(f"Dashboard: From {start_date} to {end_date}")
+st.header("Sales")
 
 
 # Carrega lojas
@@ -101,7 +105,7 @@ store_choices = st.sidebar.multiselect(
     options=stores,
     default=None,  # por padrão, não seleciona nenhuma
 )
-store_ids = [int(s.split(" - ")[0]) for s in store_choices]
+stores_ids = [int(s.split(" - ")[0]) for s in store_choices]
 
 # ---------- Checkbox de channels ----------
 channels_choices = st.sidebar.multiselect(
@@ -133,9 +137,9 @@ def sales_dashboard_data(
 
     # montar filtros condicionais (para ambas queries)
     if stores_ids:
-        filters.append("s.store_id = ANY(:store_ids)")
-        scalar_filters.append("store_id = ANY(:store_ids)")
-        params["store_ids"] = stores_ids
+        filters.append("s.store_id = ANY(:stores_ids)")
+        scalar_filters.append("store_id = ANY(:stores_ids)")
+        params["stores_ids"] = stores_ids
     if channels_ids:
         filters.append("s.channel_id = ANY(:channels_ids)")
         scalar_filters.append("channel_id = ANY(:channels_ids)")
@@ -155,7 +159,7 @@ def sales_dashboard_data(
             DATE(s.created_at) AS date,
             c.name AS channel_name,
             st.name AS store_name,
-            SUM(s.value_paid) AS total,
+            SUM(s.total_amount) AS total,
             COUNT(*) AS qtde  -- qtde por agrupamento (pode ser >1)
         FROM sales s
         INNER JOIN channels c ON c.id = s.channel_id
@@ -169,7 +173,7 @@ def sales_dashboard_data(
     # Query scalar no nível de pedidos (sem joins) — garante contagem correta
     q_scalar = f"""
         SELECT
-            COALESCE(SUM(value_paid), 0) AS total_sales,
+            COALESCE(SUM(total_amount), 0) AS total_sales,
             COUNT(*) AS total_orders
         FROM sales
         WHERE created_at BETWEEN :start AND :end
@@ -188,7 +192,7 @@ def sales_dashboard_data(
                         {
                             k: v
                             for k, v in params.items()
-                            if k in ("store_ids", "channels_ids")
+                            if k in ("stores_ids", "channels_ids")
                         }
                     ),
                 },
@@ -213,7 +217,7 @@ def sales_dashboard_data(
 
 
 df_daily, total_sales, total_orders, avg_ticket = sales_dashboard_data(
-    start=start_date, end=end_date, stores_ids=store_ids, channels_ids=channels_ids
+    start=start_date, end=end_date, stores_ids=stores_ids, channels_ids=channels_ids
 )
 
 # --- Monta o DataFrame pivoteado ---
@@ -229,14 +233,11 @@ if not df_daily.empty:
     # Garante que as colunas são strings
     df_pivot.columns = df_pivot.columns.map(str)
 
-    # Cria a coluna "Total" (soma horizontal)
-    df_pivot["Total"] = df_pivot.sum(axis=1)
-
     # Garante que "Total" apareça por último
-    cols = [c for c in df_pivot.columns if c != "Total"] + ["Total"]
+    cols = [c for c in df_pivot.columns]
     df_pivot = df_pivot[cols]
 
-    # Converte para formato longo (necessário para o Altair)
+    # Converte para formato longo
     df_long = df_pivot.reset_index().melt(
         id_vars=["date"], var_name="channel", value_name="total"
     )
@@ -252,7 +253,7 @@ if not df_daily.empty:
         .mark_line(point=True)
         .encode(
             x=alt.X("date:T", title="Date"),
-            y=alt.Y("total:Q", title="Total (currency)"),
+            y=alt.Y("total:Q", title="Total sales ($)"),
             color=alt.Color("channel:N", title="Channel", sort=cols),
             tooltip=[
                 alt.Tooltip("date:T", title="Date"),
@@ -265,13 +266,14 @@ if not df_daily.empty:
     )
 
     # Exibe o gráfico
-    st.subheader("Total sales per channel")
+    st.subheader("Sales per channel")
     st.altair_chart(chart, width="stretch")
 
 else:
     st.info("No sales in the selected period.")
 
 # KPIS utilizando metrics do streamlit
+st.subheader("Metrics")
 c1, c2, c3 = st.columns(3)
 # Total de vendas em $
 c1.metric(label="Total sales", value=f"${total_sales:,.2f}", border=True)
@@ -279,3 +281,110 @@ c1.metric(label="Total sales", value=f"${total_sales:,.2f}", border=True)
 c2.metric(label="Number of Orders", value=total_orders, border=True)
 # Ticket medio
 c3.metric(label="Average Ticket", value=f"${avg_ticket:,.2f}", border=True)
+
+st.divider(width="stretch")
+
+
+# Grafico media de venda por dia da semana
+WEEKDAY_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+@st.cache_data(ttl=300)
+def avg_sales_by_weekday(
+    start: datetime,
+    end: datetime,
+    stores_ids: list = None,
+    channels_ids: list = None,
+):
+    """
+    Faz:
+      1) agrega por dia (date) somando value_paid
+      2) calcula média por weekday (Mon..Sun) a partir dos totais diários
+    Retorna DataFrame com columns: weekday (Mon..Sun), avg_total, days_count, sum_total
+    """
+    params = {"start": start, "end": end}
+    filters = []
+    if stores_ids:
+        filters.append("s.store_id = ANY(:stores_ids)")
+        params["stores_ids"] = stores_ids
+    if channels_ids:
+        filters.append("s.channel_id = ANY(:channels_ids)")
+        params["channels_ids"] = channels_ids
+
+    filters_sql = ""
+    if filters:
+        filters_sql = " AND " + " AND ".join(filters)
+
+    q = f"""
+    WITH daily AS (
+      SELECT
+        DATE(s.created_at) AS date,
+        EXTRACT(DOW FROM s.created_at)::int AS dow,
+        SUM(s.value_paid) AS total
+      FROM sales s
+      WHERE s.created_at BETWEEN :start AND :end
+      {filters_sql}
+      GROUP BY DATE(s.created_at), EXTRACT(DOW FROM s.created_at)::int
+    )
+    SELECT
+      dow,
+      AVG(total) AS avg_total,
+      SUM(total) AS sum_total,
+      COUNT(*) AS days_count
+    FROM daily
+    GROUP BY dow
+    ORDER BY dow;
+    """
+    with engine.connect() as conn:
+        df = pd.read_sql_query(sqlalchemy.text(q), conn, params=params)
+
+    # Se dataframe vazio, criar zeros para o intervalo
+    if df.empty:
+        df = pd.DataFrame(
+            {"dow": [], "avg_total": [], "sum_total": [], "days_count": []}
+        )
+
+    # Mapear dow (Postgres: 0=Sunday) para weekday abreviado em inglês e ordenar Mon..Sun
+    dow_to_name = {0: "Sun", 1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat"}
+    df["weekday"] = df["dow"].map(dow_to_name)
+    # Para garantir todas as 7 linhas (Mesmos dias) — preencher com zeros se faltar
+    all_week = pd.DataFrame({"weekday": WEEKDAY_ORDER})
+    df = all_week.merge(df, how="left", on="weekday")
+    df["avg_total"] = df["avg_total"].fillna(0.0)
+    df["sum_total"] = df["sum_total"].fillna(0.0)
+    df["days_count"] = df["days_count"].fillna(0).astype(int)
+    # Mantém ordem Mon..Sun
+    df["weekday"] = pd.Categorical(
+        df["weekday"], categories=WEEKDAY_ORDER, ordered=True
+    )
+    df = df.sort_values("weekday")
+    return df[["weekday", "avg_total", "sum_total", "days_count"]]
+
+
+df_weekday = avg_sales_by_weekday(
+    start_date, end_date, stores_ids=stores_ids, channels_ids=channels_ids
+)
+
+if df_weekday["avg_total"].sum() == 0:
+    st.info("No sales in the selected period or filters.")
+else:
+    chart = (
+        alt.Chart(df_weekday)
+        .mark_bar(cornerRadiusTopLeft=6, cornerRadiusTopRight=6)
+        .encode(
+            y=alt.X("avg_total:Q", title="Average Sales ($)"),
+            x=alt.Y("weekday:N", sort=WEEKDAY_ORDER, title="Weekday"),
+            tooltip=[
+                alt.Tooltip("weekday:N", title="Weekday"),
+                alt.Tooltip("avg_total:Q", title="Average Sales", format=",.2f"),
+                alt.Tooltip("sum_total:Q", title="Sum Sales (period)", format=",.2f"),
+                alt.Tooltip("days_count:Q", title="Days counted"),
+            ],
+            color=alt.Color(
+                "weekday:N", legend=None
+            ),  # color por weekday sem legenda repetida
+        )
+        .properties(width="container", height=360)
+    )
+
+    st.altair_chart(chart, width="content")
