@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 
 from app_state import init_state_defaults, reset_filters_and_rerun, STATE_KEYS
 
+st.set_page_config(page_title="Stores", layout="wide")
+
 load_dotenv()
 
 DB_URL = os.getenv(
@@ -41,10 +43,7 @@ def load_channels_list() -> List[str]:
         return []
     return [f"{row['id']} - {row['name']}" for _, row in df.iterrows()]
 
-
 init_state_defaults()
-
-st.set_page_config(page_title="Stores", layout="wide")
 st.title("Stores")
 st.header("Stores overview & details")
 
@@ -240,7 +239,7 @@ else:
     df_display["Orders"] = pd.to_numeric(df_display["Orders"], errors="coerce").fillna(0).astype(int)
     df_display = df_display.sort_values("Total sales ($)", ascending=False)
 
-    st.dataframe(df_display, width="stretch")
+    st.dataframe(df_display)
 
     top_n_stores = st.slider("Top N stores to show in chart", min_value=1, max_value=50, value=10, step=1)
     top_stores = df_display.head(top_n_stores)
@@ -258,9 +257,9 @@ else:
                 alt.Tooltip("Avg ticket ($):Q", title="Avg ticket", format=",.2f"),
             ],
         )
-        .properties(height=450, width="container")
+        .properties(height=450)
     )
-    st.altair_chart(chart, width="stretch")
+    st.altair_chart(chart)
 
 st.divider()
 st.subheader("Store details")
@@ -289,10 +288,10 @@ else:
                 color=alt.Color("Store:N", title="Store"),
                 tooltip=[alt.Tooltip("date:T", title="Date"), alt.Tooltip("Store:N", title="Store"), alt.Tooltip("Total sales ($):Q", title="Total sales", format=",.2f")],
             )
-            .properties(height=450, width="container")
+            .properties(height=450)
             .interactive()
         )
-        st.altair_chart(chart_daily, width="stretch")
+        st.altair_chart(chart_daily)
 
     st.subheader("Top products in selected store(s)")
     top_products_df = top_products_by_store(start_date, end_date, store_ids=selected_ids, channels_ids=channels_ids, limit=20)
@@ -300,7 +299,7 @@ else:
         st.info("No products sold in the selected stores/filters.")
     else:
         top_products_df = top_products_df.rename(columns={"product_id": "Product id", "product_name": "Product", "total_qty": "Quantity", "revenue": "Revenue ($)"})
-        st.dataframe(top_products_df.sort_values("Quantity", ascending=False), width="stretch")
+        st.dataframe(top_products_df.sort_values("Quantity", ascending=False))
 
         chart_prod = (
             alt.Chart(top_products_df.head(10))
@@ -310,6 +309,6 @@ else:
                 y=alt.Y("Product:N", sort="-x", title="Product"),
                 tooltip=[alt.Tooltip("Product:N", title="Product"), alt.Tooltip("Quantity:Q", title="Quantity"), alt.Tooltip("Revenue ($):Q", title="Revenue", format=",.2f")],
             )
-            .properties(height=420, width="container")
+            .properties(height=420)
         )
-        st.altair_chart(chart_prod, width="stretch")
+        st.altair_chart(chart_prod)

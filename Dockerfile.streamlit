@@ -1,0 +1,17 @@
+# Usa imagem oficial do Python
+FROM python:3.12-slim
+
+# Define diretório de trabalho
+WORKDIR /app
+
+# Copia os arquivos do projeto
+COPY . /app
+
+# Instala dependências
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Exponha a porta padrão do Streamlit
+EXPOSE 8501
+
+# Comando padrão (pode ser sobrescrito no docker-compose)
+CMD ["streamlit", "run", "dashboard/Sales.py", "--server.port=8501", "--server.address=0.0.0.0"]

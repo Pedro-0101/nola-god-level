@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 
 from app_state import init_state_defaults, reset_filters_and_rerun, STATE_KEYS
 
+st.set_page_config(page_title="Products", layout="wide")
+
 load_dotenv()
 
 DB_URL = os.getenv(
@@ -43,10 +45,7 @@ def load_channels_list() -> List[str]:
         return []
     return [f"{row['id']} - {row['name']}" for _, row in df.iterrows()]
 
-
 init_state_defaults()
-
-st.set_page_config(page_title="Products", layout="wide")
 st.title("Products")
 st.header("Catalog & Top selling products")
 

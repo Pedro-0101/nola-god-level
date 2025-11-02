@@ -1,6 +1,7 @@
 version: '3.8'
 
 services:
+  # --- BANCO DE DADOS ---
   postgres:
     image: postgres:15
     container_name: godlevel-db
@@ -19,6 +20,7 @@ services:
       timeout: 5s
       retries: 5
 
+  # --- GERADOR DE DADOS ---
   data-generator:
     build:
       context: .
@@ -39,6 +41,7 @@ services:
     profiles:
       - tools
 
+  # --- INTERFACE ADMIN PGADMIN ---
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: godlevel-pgadmin
@@ -53,7 +56,25 @@ services:
     profiles:
       - tools
 
+  # --- DASHBOARD STREAMLIT ---
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    container_name: godlevel-dashboard
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # note que o host é 'postgres' (nome do serviço docker)
+      DATABASE_URL: postgresql://challenge:challenge_2024@postgres:5432/challenge_db
+      STREAMLIT_ENV: production
+    ports:
+      - "8501:8501"
+    volumes:
+      - .:/app
+    command: streamlit run dashboard/Sales.py --server.port=8501 --server.address=0.0.0.0
+
 volumes:
   postgres_data:
     driver: local
-

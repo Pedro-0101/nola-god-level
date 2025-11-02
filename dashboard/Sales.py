@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 
 from app_state import init_state_defaults, reset_filters_and_rerun, STATE_KEYS
 
+st.set_page_config(page_title="Sales Dashboard", layout="wide")
+
 load_dotenv()
 
 DB_URL = os.getenv(
@@ -60,11 +62,11 @@ def run_scalar(sql: str, params: dict = None):
 
 
 # ---------- UI ----------
-
+st.title("Sales Dashboard")
 init_state_defaults()
 
-st.set_page_config(page_title="Sales Dashboard", layout="wide")
-st.title("Sales Dashboard")
+st.sidebar.header("Filters")
+st.sidebar.button("Clear filters", on_click=reset_filters_and_rerun)
 
 # Sidebar filters (defaults para hoje)
 today = date.today()
@@ -78,10 +80,6 @@ end_date = st.sidebar.date_input(
     value=st.session_state.get(STATE_KEYS["end_date"], today),
     key=STATE_KEYS["end_date"],
 )
-
-st.sidebar.header("Filters")
-
-st.sidebar.button("Clear filters", on_click=reset_filters_and_rerun)
 
 
 # Carrega lojas
