@@ -3,7 +3,6 @@ Faker==20.1.0
 streamlit==1.39.0
 pandas
 sqlalchemy
-psycopg2-binary
 altair
 python-dotenv
 stqdm
