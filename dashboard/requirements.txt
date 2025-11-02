@@ -1,8 +1,0 @@
-psycopg2-binary==2.9.9
-Faker==20.1.0
-streamlit==1.39.0
-pandas
-sqlalchemy
-altair
-python-dotenv
-stqdm

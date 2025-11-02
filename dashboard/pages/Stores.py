@@ -16,7 +16,7 @@ st.set_page_config(page_title="Stores", layout="wide")
 load_dotenv()
 
 DB_URL = os.getenv(
-    "DATABASE_URL", "postgresql://challenge:challenge_2024@localhost:5432/challenge_db"
+    "DATABASE_URL", "postgresql+psycopg://challenge:challenge_2024@localhost:5432/challenge_db"
 )
 
 @st.cache_resource(ttl=3600)
