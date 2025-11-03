@@ -8,8 +8,7 @@ import random
 import argparse
 from datetime import datetime, timedelta
 from decimal import Decimal
-import psycopg2
-from psycopg2.extras import execute_batch
+import psycopg
 from faker import Faker
 
 fake = Faker('pt_BR')
@@ -72,7 +71,22 @@ COURIER_TYPES = ['PLATFORM', 'OWN', 'THIRD_PARTY']
 
 
 def get_db_connection(db_url):
-    return psycopg2.connect(db_url)
+    """
+    Retorna uma conexão psycopg.connect.
+    Aceita URLs no formato:
+      - postgresql://user:pass@host:port/dbname
+      - postgresql+psycopg://user:pass@host:port/dbname  (SQLAlchemy style)
+    Normaliza para o formato que psycopg3 aceita.
+    """
+    if db_url is None:
+        raise ValueError("db_url is required")
+
+    # se veio no formato SQLAlchemy (postgresql+psycopg://), converte para postgresql://
+    if db_url.startswith("postgresql+psycopg://"):
+        db_url = db_url.replace("postgresql+psycopg://", "postgresql://", 1)
+
+    # Caso algum caractere & cause parsing problem, deixe a query intacta (psycopg3 aceita query string)
+    return psycopg.connect(db_url)
 
 
 def get_hour_weight(hour):
@@ -291,12 +305,14 @@ def generate_customers(conn, num_customers=10000):
             datetime.now() - timedelta(days=random.randint(0, 720))
         ))
     
-    execute_batch(cursor, """
+    # Use executemany in psycopg3 (works similarly)
+    insert_sql = """
         INSERT INTO customers (
             customer_name, email, phone_number, cpf, birth_date, gender,
             agree_terms, receive_promotions_email, registration_origin, created_at
         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    """, batch, page_size=1000)
+    """
+    cursor.executemany(insert_sql, batch)
     
     cursor.execute("SELECT id FROM customers")
     customer_ids = [row[0] for row in cursor.fetchall()]
@@ -548,7 +564,9 @@ def insert_sales_batch(cursor, sales_batch, items, option_groups):
         s['discount_reason'], s['people_qty'], 'POS'
     ) for s in sales_batch]
     
-    execute_batch(cursor, """
+    # Inserir vendas e coletar os ids (usando RETURNING id)
+    sale_ids = []
+    sales_insert_sql = """
         INSERT INTO sales (
             store_id, customer_id, channel_id, customer_name,
             created_at, sale_status_desc,
@@ -557,16 +575,12 @@ def insert_sales_batch(cursor, sales_batch, items, option_groups):
             production_seconds, delivery_seconds,
             discount_reason, people_quantity, origin
         ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-    """, sales_data, page_size=500)
-    
-    # Get inserted sale IDs
-    cursor.execute("""
-        SELECT id FROM sales 
-        ORDER BY id DESC 
-        LIMIT %s
-    """, (len(sales_batch),))
-    sale_ids = [row[0] for row in cursor.fetchall()]
-    sale_ids.reverse()
+        RETURNING id
+    """
+
+    for sale_row in sales_data:
+        cursor.execute(sales_insert_sql, sale_row)
+        sale_ids.append(cursor.fetchone()[0])
     
     # Insert product_sales and related data
     for sale_id, sale in zip(sale_ids, sales_batch):

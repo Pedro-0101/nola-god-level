@@ -1,0 +1,8 @@
+psycopg[binary]
+sqlalchemy>=2.0
+Faker==20.1.0
+streamlit==1.39.0
+pandas
+altair
+python-dotenv
+stqdm

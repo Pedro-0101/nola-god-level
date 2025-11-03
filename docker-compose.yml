@@ -1,47 +1,39 @@
 version: '3.8'
 
 services:
-  # --- BANCO DE DADOS ---
-  postgres:
-    image: postgres:15
-    container_name: godlevel-db
-    environment:
-      POSTGRES_DB: challenge_db
-      POSTGRES_USER: challenge
-      POSTGRES_PASSWORD: challenge_2024
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./database-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U challenge -d challenge_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   # --- GERADOR DE DADOS ---
   data-generator:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: godlevel-data-gen
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: postgresql://challenge:challenge_2024@postgres:5432/challenge_db
+    volumes:
+      - .:/app
     command: >
       sh -c "
-        echo 'Waiting for database to be ready...' &&
-        sleep 5 &&
-        echo 'Generating challenge data...' &&
-        python generate_data.py --db-url postgresql://challenge:challenge_2024@postgres:5432/challenge_db
+        echo 'Aplicando schema no Neon...' &&
+        psql 'postgresql://neondb_owner:npg_U3HIg8fSyNYG@ep-round-credit-acfujbd5-pooler.sa-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require' -f /app/database-schema.sql &&
+        echo 'Gerando dados...' &&
+        python generate_data.py --db-url 'postgresql+psycopg://neondb_owner:npg_U3HIg8fSyNYG@ep-round-credit-acfujbd5-pooler.sa-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require'
       "
-    profiles:
-      - tools
+    restart: "no"
 
-  # --- INTERFACE ADMIN PGADMIN ---
+  # --- DASHBOARD STREAMLIT ---
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    container_name: godlevel-dashboard
+    environment:
+      DATABASE_URL: "postgresql+psycopg://neondb_owner:npg_U3HIg8fSyNYG@ep-round-credit-acfujbd5-pooler.sa-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+      STREAMLIT_ENV: production
+    ports:
+      - "8501:8501"
+    volumes:
+      - .:/app
+    command: streamlit run dashboard/Sales.py --server.port=8501 --server.address=0.0.0.0
+
+  # --- INTERFACE PGADMIN (opcional) ---
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: godlevel-pgadmin
@@ -51,30 +43,4 @@ services:
       PGADMIN_CONFIG_SERVER_MODE: 'False'
     ports:
       - "5050:80"
-    depends_on:
-      - postgres
-    profiles:
-      - tools
-
-  # --- DASHBOARD STREAMLIT ---
-  streamlit:
-    build:
-      context: .
-      dockerfile: Dockerfile.streamlit
-    container_name: godlevel-dashboard
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      # note que o host é 'postgres' (nome do serviço docker)
-      DATABASE_URL: postgresql://challenge:challenge_2024@postgres:5432/challenge_db
-      STREAMLIT_ENV: production
-    ports:
-      - "8501:8501"
-    volumes:
-      - .:/app
-    command: streamlit run dashboard/Sales.py --server.port=8501 --server.address=0.0.0.0
-
-volumes:
-  postgres_data:
-    driver: local
+    restart: "no"
