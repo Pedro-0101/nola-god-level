@@ -16,7 +16,7 @@ st.set_page_config(page_title="Products", layout="wide")
 load_dotenv()
 
 DB_URL = os.getenv(
-    "DATABASE_URL", "postgresql+psycopg://challenge:challenge_2024@localhost:5432/challenge_db"
+    "DATABASE_URL", "postgresql+psycopg://neondb_owner:npg_U3HIg8fSyNYG@ep-round-credit-acfujbd5-pooler.sa-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 )
 
 
