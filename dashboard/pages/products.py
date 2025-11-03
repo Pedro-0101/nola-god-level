@@ -157,7 +157,7 @@ else:
             "revenue": "Revenue ($)",
         }
     )
-    st.dataframe(df_top, width="stretch")
+    st.dataframe(df_top)
 
 st.divider()
 st.subheader("Product details")
@@ -261,7 +261,7 @@ else:
                       f"${total_revenue_all:,.2f}")
 
             st.markdown("**Breakdown by product**")
-            st.dataframe(agg_by_product, width="stretch")
+            st.dataframe(agg_by_product)
 
             st.subheader("Daily trend (selected products)")
             chart = (
@@ -295,4 +295,4 @@ else:
                 }
             )
             st.dataframe(df_product_multi.sort_values(
-                "Revenue ($)", ascending=False), width="stretch")
+                "Revenue ($)", ascending=False))
